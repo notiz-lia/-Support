@@ -1,0 +1,40 @@
+<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<base href="{{BASE}}">
+<title>Fjärrstyrning – Notiz</title><link rel="stylesheet" href="static/style.css">
+<style>html,body{height:100%}body{display:flex;flex-direction:column;background:#0f1115}
+header{gap:10px;flex-wrap:wrap}#screen{flex:1;min-height:0;background:#0f1115}
+#msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e8e8ea;font-size:18px;pointer-events:none;text-align:center;padding:24px}
+.toggle{display:flex;align-items:center;gap:6px;color:var(--mute);font-size:14px}</style></head>
+<body><header><a class="logo" href="./">NOTIZ<span>FJÄRRSUPPORT</span></a>
+<span class="pill warn" id="state">Ansluter …</span><a class="small" id="name"></a><div class="sp"></div>
+<label class="toggle"><input type="checkbox" id="vo"> Bara titta</label>
+<button class="btn" id="reload">Ladda om sidan</button>
+<button class="btn d" id="reboot">Starta om</button>
+<button class="btn" id="fs">Helskärm</button></header>
+<div id="screen"></div><div id="msg">Ansluter till skärmen …</div>
+<script src="static/common.js"></script>
+<script type="module">
+import RFB from './static/novnc/core/rfb.js';
+const id = decodeURIComponent(location.pathname.split('/').pop());
+const durl = 'api/devices/' + encodeURIComponent(id);
+let rfb;
+function setState(t, cls) { const e = $('#state'); e.textContent = t; e.className = 'pill ' + cls; }
+function connect() {
+  const ws = new URL('ws/view/' + encodeURIComponent(id), document.baseURI);
+  ws.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  rfb = new RFB($('#screen'), ws.href, {wsProtocols: ['binary']});
+  rfb.scaleViewport = true; rfb.resizeSession = false; rfb.viewOnly = $('#vo').checked; rfb.focusOnClick = true;
+  rfb.addEventListener('connect', () => { setState('Ansluten', 'ok'); $('#msg').textContent = ''; rfb.focus(); });
+  rfb.addEventListener('disconnect', () => { setState('Frånkopplad', 'bad'); $('#msg').innerHTML = 'Anslutningen bröts.<br><br><button class="btn p" style="pointer-events:auto" onclick="location.reload()">Anslut igen</button>'; });
+}
+async function cmd(type) {
+  try { await api(durl + '/command', {method: 'POST', body: {type}}); toast('Skickat'); }
+  catch (e) { toast(e.message, true); }
+}
+$('#vo').onchange = () => { if (rfb) rfb.viewOnly = $('#vo').checked; };
+$('#reload').onclick = () => cmd('restart_kiosk');
+$('#reboot').onclick = () => { if (confirm('Starta om skärmen? Den är borta ca 1 minut.')) cmd('reboot'); };
+$('#fs').onclick = () => document.documentElement.requestFullscreen();
+api(durl).then(d => { $('#name').textContent = (d.name || d.short_id) + ' · ' + (d.kiosk_url || ''); $('#name').href = 'device/' + encodeURIComponent(id); });
+connect();
+</script></body></html>

@@ -1,0 +1,23 @@
+Fliken "Fjärrsupport"
+=====================
+
+index.html   Listan med alla enheter: sök, statusfilter, "+ Koppla enhet" (kopplingskod),
+             tabell (ID, kod, namn, visar, programvara, IP, status, senast aktiv) och
+             åtgärder: fjärrstyr, ladda om sidan, starta om, detaljer, ta bort.
+device.html  En enhet: skärmdump, status, byt sida (URL), lägg till Wi-Fi, namn och
+             anteckningar, senaste kommandon, ta bort.
+view.html    Fjärrstyrningen (noVNC). Kräver noVNC i static/novnc/ (Dockerfilen hämtar den).
+common.js    Sidomeny (bara Fjärrsupport) och toppfält i Notiz CMS-stil, ikoner, hjälpfunktioner.
+style.css    Utseendet (Notiz CMS-stil).
+
+Sidorna pratar med servern (support-server/app.py):
+  GET    api/me                              inloggad användare
+  GET    api/overview                        alla enheter, antal som väntar på kod
+  POST   api/claim                           {code, name}  koppla enhet med koden
+  GET    api/devices/<id>                    detaljer för en enhet
+  PATCH  api/devices/<id>                    {name, notes, policy:{KIOSK_URL}}
+  DELETE api/devices/<id>                    ta bort enheten
+  POST   api/devices/<id>/command            {type: reboot|restart_kiosk|screenshot|set_wifi, args}
+  GET    api/devices/<id>/screenshot.jpg     senaste skärmdumpen
+  WS     ws/view/<id>                        fjärrstyrning (VNC över WebSocket)
+<base href> sätts av servern ({{BASE}} = t.ex. /support/).

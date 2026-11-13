@@ -1,0 +1,138 @@
+<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<base href="{{BASE}}">
+<title>Enhet – Notiz</title><link rel="stylesheet" href="static/style.css"></head>
+<body>
+<main>
+ <div class="small" style="margin-bottom:10px"><a href="./">← Alla enheter</a></div>
+ <div class="head"><div><h2 id="title">Enhet</h2><div class="small" id="sub"></div></div>
+  <div class="acts wrap">
+   <a class="btn p" id="remote" target="_blank">Fjärrstyr</a>
+   <button class="btn" data-c="screenshot">Ny skärmdump</button>
+   <button class="btn" data-c="restart_kiosk">Ladda om sidan</button>
+   <button class="btn d" data-c="reboot">Starta om</button>
+  </div></div>
+
+ <div class="cols">
+  <div>
+   <div class="card"><h3>Skärmen just nu</h3>
+    <div class="shot"><img id="shot" alt=""><div id="noshot" class="small">Ingen skärmdump ännu</div></div>
+    <div class="small" id="shotat"></div></div>
+   <div class="card"><h3>Status</h3><dl id="info"></dl></div>
+  </div>
+  <div>
+   <div class="card"><h3>Byt sida</h3>
+    <p class="small">Sidan som enheten visar. Tomt = enhetens egen inställning (<span id="defurl"></span>).</p>
+    <div class="grid"><label class="wide"><span>Adress</span><input id="kurl" placeholder="https://…"></label></div>
+    <div class="acts"><button class="btn" id="kreset">Återställ</button><button class="btn p" id="ksave">Visa sidan</button></div>
+    <div id="other" hidden style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+     <p class="small">Andra inställningar som satts härifrån tidigare: <b id="otherlist"></b></p>
+     <button class="btn" id="otherclear">Ta bort dem</button></div></div>
+
+   <div class="card"><h3>Lägg till Wi-Fi</h3>
+    <div class="grid">
+     <label><span>Nätverk (SSID)</span><input id="ssid"></label>
+     <label><span>Lösenord</span><input id="wpw" type="password" autocomplete="new-password"></label>
+     <label><span>Säkerhet</span><select id="wsec"><option value="auto">WPA2/WPA3</option><option value="wpa3">Bara WPA3</option><option value="enterprise">Företagsnät</option><option value="open">Öppet</option></select></label>
+     <label><span>Användarnamn (företagsnät)</span><input id="wid"></label>
+     <label class="chk"><input type="checkbox" id="whid"> Dolt nätverk</label>
+    </div>
+    <div class="acts"><button class="btn p" id="wifi">Skicka till enheten</button></div></div>
+
+   <div class="card"><h3>Namn och anteckningar</h3>
+    <div class="grid">
+     <label class="wide"><span>Namn</span><input id="name"></label>
+     <label class="wide"><span>Anteckningar</span><textarea id="notes" rows="3" placeholder="Plats, kontaktperson, …"></textarea></label>
+    </div>
+    <div class="acts"><button class="btn p" id="saven">Spara</button></div></div>
+
+   <div class="card"><h3>Senaste kommandon</h3><div id="cmds"></div></div>
+   <div class="card danger"><h3>Ta bort</h3>
+    <p class="small">Enheten fortsätter visa sin sida men syns inte längre här. För att lägga till den igen behövs kopplingskoden.</p>
+    <button class="btn d" id="remove">Ta bort enheten</button></div>
+  </div>
+ </div>
+</main>
+<script src="static/common.js"></script>
+<script>
+const id = decodeURIComponent(location.pathname.split('/').pop());
+const url = 'api/devices/' + encodeURIComponent(id);
+let dev = null, formLoaded = false;
+const CMD = {reboot: 'Starta om', restart_kiosk: 'Ladda om sidan', screenshot: 'Skärmdump', set_wifi: 'Wi-Fi'};
+
+async function load() {
+  try { dev = await api(url); render(); } catch (e) { $('#sub').textContent = e.message; }
+}
+function render() {
+  const d = dev, st = d.status || {};
+  document.title = (d.name || d.short_id) + ' – Notiz';
+  $('#title').textContent = d.name || 'Enhet ' + d.short_id;
+  $('#sub').innerHTML = statusPill(d) + ' &nbsp;ID ' + esc(d.short_id) + ' · kopplad ' + when(d.claimed) + ' av ' + esc(d.claimed_by || '?');
+  const r = $('#remote');
+  r.href = 'view/' + encodeURIComponent(id);
+  r.classList.toggle('off', !d.remote); r.title = d.remote ? '' : 'Enheten har ingen fjärrsupportanslutning just nu';
+  if (d.screenshot_at != null) {
+    const src = url + '/screenshot.jpg?t=' + Math.round((Date.now() / 1000 - d.screenshot_at) / 30);
+    if ($('#shot').getAttribute('src') !== src) $('#shot').src = src;
+    $('#shot').hidden = false; $('#noshot').hidden = true; $('#shotat').textContent = 'Tagen för ' + dur(d.screenshot_at) + ' sedan';
+  } else { $('#shot').hidden = true; $('#noshot').hidden = false; }
+  const net = st.network || {};
+  const ips = Object.entries(net.ips || {}).map(([k, v]) => k + ' ' + v).join(', ');
+  const rows = [
+    ['Visar', d.kiosk_url], ['Senast hörd', dur(d.last_seen) + ' sedan'], ['Publik IP', d.public_ip],
+    ['Lokala IP', ips], ['Wi-Fi', net.wifi ? net.wifi.ssid + ' (' + net.wifi.signal + '%)' : ''],
+    ['Modell', d.model], ['Notiz OS', d.os_version],
+    ['Uppdatering', d.update.state ? d.update.state + (d.update.version ? ' ' + d.update.version : '') + (d.update.reason ? ' – ' + d.update.reason : '') : ''],
+    ['Upptid', st.uptime_sec != null ? dur(st.uptime_sec) : ''], ['CPU-temp', d.cpu_temp_c ? d.cpu_temp_c + ' °C' : ''],
+    ['Minne', st.memory ? st.memory.available_mb + ' MB ledigt av ' + st.memory.total_mb + ' MB' : ''],
+    ['Webbläsare', st.chromium ? (st.chromium.alive ? 'Kör' : 'Kör inte') : ''],
+  ];
+  $('#info').innerHTML = rows.filter(r => r[1]).map(r => '<dt>' + esc(r[0]) + '</dt><dd>' + esc(r[1]) + '</dd>').join('') +
+    (d.tamper.length ? '<dt>Säkerhet</dt><dd class="bad-t">' + d.tamper.map(esc).join('<br>') + '</dd>' : '');
+  $('#cmds').innerHTML = d.commands.length ? '<table class="mini">' + d.commands.slice(0, 8).map(c =>
+    '<tr><td>' + esc(CMD[c.type] || c.type) + '</td><td class="small">' + esc(c.created_by) + ' ' + when(c.created) + '</td><td>' +
+    (c.done ? (c.ok ? '<span class="pill ok">Klar</span>' : '<span class="pill bad">' + esc(c.message || 'Fel') + '</span>')
+      : c.sent ? '<span class="pill warn">Skickad</span>' : '<span class="pill warn">Väntar på enheten</span>') + '</td></tr>').join('') + '</table>'
+    : '<div class="small">Inga kommandon ännu.</div>';
+  const other = Object.entries(d.policy).filter(([k]) => k !== 'KIOSK_URL');
+  $('#other').hidden = !other.length;
+  $('#otherlist').textContent = other.map(([k, v]) => (META.policy_keys[k] || k) + ': ' + v).join(', ');
+  $('#defurl').textContent =d.policy.KIOSK_URL ? 'ändrad härifrån' : (d.kiosk_url || 'Notiz webbspelare');
+  if (!formLoaded) {
+    formLoaded = true;
+    $('#name').value = d.name; $('#notes').value = d.notes; $('#kurl').value = d.policy.KIOSK_URL || '';
+  }
+}
+async function patch(body, msg) {
+  try { dev = await api(url, {method: 'PATCH', body}); render(); toast(msg); }
+  catch (e) { toast(e.message, true); }
+}
+function setUrl(u) {
+  const pol = Object.assign({}, dev.policy);
+  if (u) pol.KIOSK_URL = u; else delete pol.KIOSK_URL;
+  return patch({policy: pol}, u ? 'Enheten byter sida' : 'Enheten går tillbaka till sin egen sida');
+}
+$('#ksave').onclick = () => setUrl($('#kurl').value.trim());
+$('#kreset').onclick = () => { $('#kurl').value = ''; setUrl(''); };
+$('#otherclear').onclick = () => patch({policy: dev.policy.KIOSK_URL ? {KIOSK_URL: dev.policy.KIOSK_URL} : {}}, 'Enheten går tillbaka till sina egna inställningar');
+$('#saven').onclick =() => patch({name: $('#name').value, notes: $('#notes').value}, 'Sparat');
+document.querySelectorAll('[data-c]').forEach(b => b.onclick = () => command(b.dataset.c));
+async function command(type, args) {
+  if (type === 'reboot' && !confirm('Starta om enheten? Den är borta ungefär en minut.')) return;
+  try {
+    const r = await api(url + '/command', {method: 'POST', body: {type, args}});
+    toast(r.now ? 'Skickat till enheten' : 'Köat, skickas när enheten hör av sig');
+    setTimeout(load, type === 'screenshot' ? 4000 : 1500);
+  } catch (e) { toast(e.message, true); }
+}
+$('#wifi').onclick = () => {
+  if (!$('#ssid').value.trim()) return toast('Ange nätverkets namn', true);
+  command('set_wifi', {ssid: $('#ssid').value.trim(), password: $('#wpw').value, security: $('#wsec').value,
+    identity: $('#wid').value.trim(), hidden: $('#whid').checked});
+  $('#wpw').value = '';
+};
+$('#remove').onclick = async () => {
+  if (!confirm('Ta bort enheten från fjärrsupporten?')) return;
+  try { await api(url, {method: 'DELETE'}); location = './'; } catch (e) { toast(e.message, true); }
+};
+meta().then(() => { shell('Fjärrsupport'); setActive('support'); load(); setInterval(load, 10000); });
+</script></body></html>

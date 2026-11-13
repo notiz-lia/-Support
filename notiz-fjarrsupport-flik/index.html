@@ -1,0 +1,107 @@
+<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<base href="{{BASE}}">
+<title>Fjärrsupport – Notiz</title><link rel="stylesheet" href="static/style.css"></head>
+<body>
+<main>
+ <div class="toolbar">
+  <label class="search"><span id="sico"></span><input id="q" placeholder="Sök…"></label>
+  <label class="fsel">Status <select id="fs"><option value="">Alla</option><option value="online">Online</option><option value="offline">Offline</option><option value="remote">Kan fjärrstyras</option></select></label>
+  <span class="small" id="sub"></span>
+  <button class="btn p" id="add">+ Koppla enhet</button>
+ </div>
+ <div class="tablecard">
+  <table><thead><tr><th>ID</th><th>Kod</th><th>Namn</th><th class="hide-l">Visar</th><th class="hide-m">Programvara</th><th class="hide-l">Publik IP</th><th>Status</th><th class="hide-m">Senast aktiv</th><th>Åtgärder</th></tr></thead>
+   <tbody id="rows"></tbody></table>
+  <div id="empty"></div>
+  <div class="pager">Rader per sida: <select id="per"><option>10</option><option>25</option><option>50</option></select>
+   <span id="range">0–0 av 0</span><button id="pp" title="Föregående">‹</button><button id="np" title="Nästa">›</button></div>
+ </div>
+</main>
+
+<dialog id="dlg"><form method="dialog" id="claimf">
+ <h2>Koppla en enhet</h2>
+ <p class="small">Koden visas på skärmen när Notiz OS startar första gången (och på hotspot-sidan). Den behöver bara anges en gång, sedan finns enheten här.</p>
+ <label><span>Kopplingskod</span><input id="code" required autocomplete="off" placeholder="T.ex. K7M2QP" style="text-transform:uppercase;letter-spacing:3px;font-size:20px"></label>
+ <label><span>Namn (valfritt)</span><input id="cname" placeholder="T.ex. Receptionen Kungsgatan"></label>
+ <div class="err" id="cerr"></div>
+ <div class="acts"><button class="btn" value="cancel" formnovalidate>Avbryt</button><button class="btn p" value="ok">Koppla</button></div>
+</form></dialog>
+
+<script src="static/common.js"></script>
+<script>
+let data = {devices: [], waiting: 0}, page = 0;
+
+async function load() {
+  try { data = await api('api/overview'); render(); }
+  catch (e) { $('#sub').textContent = 'Kan inte nå servern'; }
+}
+function dot(d) {
+  if (d.sessions && d.sessions.length) return '<span class="sdot live" title="Fjärrstyrs av ' + esc(d.sessions.map(s => s.user).join(', ')) + '"></span>';
+  if (d.tamper && d.tamper.length) return '<span class="sdot warn" title="Säkerhetsvarning"></span>';
+  return d.online ? '<span class="sdot ok" title="Online"></span>' : '<span class="sdot" title="Offline ' + dur(d.last_seen) + '"></span>';
+}
+function lastActive(d) {
+  const t = new Date(Date.now() - d.last_seen * 1000);
+  return d.online ? 'Nu' : t.toLocaleDateString('en-US', {weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'}).replace(/,/g, '') + ' ' + t.toLocaleTimeString('sv-SE');
+}
+function filtered() {
+  const q = $('#q').value.toLowerCase(), fs = $('#fs').value;
+  return data.devices.filter(d => (!fs || (fs === 'online' ? d.online : fs === 'offline' ? !d.online : d.remote)) &&
+    JSON.stringify(d).toLowerCase().includes(q));
+}
+function render() {
+  const all = filtered(), per = +$('#per').value;
+  page = Math.min(page, Math.max(0, Math.ceil(all.length / per) - 1));
+  const rows = all.slice(page * per, page * per + per);
+  $('#sub').textContent = data.waiting ? data.waiting + ' väntar på kopplingskod' : '';
+  $('#range').textContent = (all.length ? page * per + 1 : 0) + '–' + (page * per + rows.length) + ' av ' + all.length;
+  $('#pp').disabled = page === 0; $('#np').disabled = (page + 1) * per >= all.length;
+  $('#empty').innerHTML = rows.length ? '' : '<div class="empty">' + (data.devices.length ? 'Inga träffar.' : 'Inga enheter kopplade ännu. Klicka på <b>+ Koppla enhet</b> och ange koden som visas på skärmen.') + '</div>';
+  $('#rows').innerHTML = rows.map((d, i) => {
+    const href = 'device/' + encodeURIComponent(d.device_id), id = esc(d.device_id);
+    return '<tr class="click" onclick="location=\'' + href + '\'">' +
+      '<td>' + (page * per + i + 1) + '</td><td><span class="code">' + esc(d.short_id.slice(0, 6)) + '</span></td>' +
+      '<td>' + esc(d.name || d.short_id) + '</td>' +
+      '<td class="hide-l"><span class="url" title="' + esc(d.kiosk_url) + '">' + esc((d.kiosk_url || '–').replace(/^https?:\/\//, '')) + '</span></td>' +
+      '<td class="hide-m">Notiz OS ' + esc(d.os_version || '?') + '<br><span class="small">' + esc(d.model || '') + '</span></td>' +
+      '<td class="hide-l">' + esc(d.public_ip || '–') + '</td>' +
+      '<td>' + dot(d) + '</td>' +
+      '<td class="hide-m">' + esc(lastActive(d)) + '</td>' +
+      '<td><div class="acts" onclick="event.stopPropagation()">' +
+        '<a class="iconbtn' + (d.remote ? '' : ' off') + '" href="view/' + encodeURIComponent(d.device_id) + '" target="_blank" title="' + (d.remote ? 'Fjärrstyr' : 'Enheten är inte ansluten just nu') + '">' + icon('screen') + '</a>' +
+        '<button class="iconbtn" title="Ladda om sidan" onclick="cmd(\'' + id + '\',\'restart_kiosk\')">' + icon('reload') + '</button>' +
+        '<button class="iconbtn" title="Starta om enheten" onclick="cmd(\'' + id + '\',\'reboot\')">' + icon('power') + '</button>' +
+        '<a class="iconbtn" href="' + href + '" title="Detaljer">' + icon('edit') + '</a>' +
+        '<button class="iconbtn red" title="Ta bort" onclick="removeDev(\'' + id + '\')">' + icon('trash') + '</button>' +
+      '</div></td></tr>';
+  }).join('');
+}
+async function cmd(id, type) {
+  if (type === 'reboot' && !confirm('Starta om enheten? Den är borta ungefär en minut.')) return;
+  try {
+    const r = await api('api/devices/' + encodeURIComponent(id) + '/command', {method: 'POST', body: {type}});
+    toast(r.now ? 'Skickat till enheten' : 'Köat, skickas när enheten hör av sig');
+  } catch (e) { toast(e.message, true); }
+}
+async function removeDev(id) {
+  if (!confirm('Ta bort enheten från fjärrsupporten? Den måste kopplas igen med koden.')) return;
+  try { await api('api/devices/' + encodeURIComponent(id), {method: 'DELETE'}); toast('Enheten är borttagen'); load(); }
+  catch (e) { toast(e.message, true); }
+}
+
+$('#add').onclick = () => { $('#code').value = ''; $('#cname').value = ''; $('#cerr').textContent = ''; $('#dlg').showModal(); };
+$('#claimf').onsubmit = async e => {
+  if (e.submitter && e.submitter.value === 'cancel') return;
+  e.preventDefault();
+  try {
+    const r = await api('api/claim', {method: 'POST', body: {code: $('#code').value, name: $('#cname').value}});
+    $('#dlg').close(); toast('Enheten är kopplad');
+    location = 'device/' + encodeURIComponent(r.device_id);
+  } catch (err) { $('#cerr').textContent = err.message; }
+};
+
+$('#sico').innerHTML = icon('search');
+$('#q').oninput = $('#fs').onchange = $('#per').onchange = () => { page = 0; render(); };
+$('#pp').onclick = () => { page--; render(); }; $('#np').onclick = () => { page++; render(); };
+meta().then(() => { shell('Fjärrsupport'); setActive('support'); load(); setInterval(load, 10000); });
+</script></body></html>
